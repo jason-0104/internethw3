@@ -2,11 +2,14 @@
 #include <ctype.h>
 #include <time.h>
 #include <string.h>
+#include <unistd.h>
 #include <stdlib.h>
+#include<fcntl.h>
 struct information{
     SOCKET id;
     unsigned int in;
     char name[1024];
+    char password[1024];
     int state;
     int oppnent;
     int oppfind;
@@ -25,6 +28,7 @@ struct information{
     int watchingguy[10];
     int w;
     int chatid;
+    int login;
 };
 int turn=0;
 void playgame(SOCKET fd1,SOCKET fd2);
@@ -81,11 +85,13 @@ int main() {
     FD_ZERO(&master);
     FD_SET(socket_listen, &master);
     SOCKET max_socket = socket_listen;
-
+    
     printf("Waiting for connections...\n");
     for(int i=0;i<30;i++){
         user[i].id=-1;
         user[i].in=-1;
+        user[i].login=-1;
+        user[i].ingame=0;;
     }
 
     while(1) {
@@ -128,21 +134,40 @@ int main() {
                     char read[1024];
                     memset(read,0,1024);
                     int bytes_received = recv(i, read, 1024, 0);
+                     int w=0;
+                            for(int j=0;j<30;j++){
+                                if(i==user[j].id)
+                                    w = j;
+                            }
                         if (bytes_received < 1) {
                             FD_CLR(i, &master);
                             CLOSESOCKET(i);
                             continue;
                         }
-                        else if(strcmp(read,"who\n")==0){
+                        else if(strcmp(read,"who\n")==0&&user[w].login==1){
                             char all[1024];
                             memset(all,'\0',1024);
                             for(int j=0;j<30;j++){
-                                if(user[j].id!=-1)
+                                if(user[j].id!=-1&&user[j].login==1)
                                     strcat(all,user[j].name);
                             }
                             send(i,all, 1024, 0);
                         }
-                        else if(strcmp(read,"invite\n")==0){
+                        else if(strcmp(read,"gamelist\n")==0&&user[w].login==1){
+                            char all[1024];
+                            memset(all,'\0',1024);
+                            for(int j=0;j<30;j++){
+                                if(user[j].ingame==1){
+                                    strcat(all,user[j].name);
+                                }
+                                    
+                            }
+                            send(i,"below are people who are playing\n", 1024, 0);
+                            usleep(1);
+                            send(i,all, 1024, 0);
+                            usleep(1);
+                        }
+                        else if(strcmp(read,"invite\n")==0&&user[w].login==1){
                             send(i, "please choose your oppnent\n", 50, 0);
                             usleep(1);
                             for(int j=0;j<30;j++){
@@ -150,15 +175,14 @@ int main() {
                                     user[j].state = -1;
                             }
                         }
-
-                        else if(strcmp(read,"help\n")==0){
+                        else if(strcmp(read,"help\n")==0&&user[w].login==1){
                             char all[1024];
                             memset(all,'\0',1024);
-                            send(i, "\nUsage: \n join {name}: log in with {name}\n who: Check who is online \n winrate {player}: Check {player}'s winrate \n invite: invite someone to play \n Watching: Watching someone's game which is played now\n log out: log out your account\n Chat: Choose to chat with someone \n", 300, 0);
+                            send(i, "\nUsage: \n join {name}: log in with {name}\n gamelist: who is playing now\n who: Check who is online \n winrate {player}: Check {player}'s winrate \n invite: invite someone to play \n Watching: Watching someone's game which is played now\n log out: log out your account\n Chat: Choose to chat with someone \n", 300, 0);
                             usleep(1);
 
                         }
-                        else if(strstr(read,"winrate")){
+                        else if(strstr(read,"winrate")&&user[w].login==1){
                             int jud=0;
                             char name[30];
                             memset(name,'\0',30);
@@ -193,13 +217,57 @@ int main() {
                                 usleep(1);
                             }
                         }
-                        else if(strcmp(read,"log out\n")==0){
+                        else if(strcmp(read,"log out\n")==0&&user[w].login==1){
                             send(i, "Assure to leave?Please type y/n\n", 50, 0);
                             usleep(1);
                             for(int j=0;j<30;j++){
                                 if(i==user[j].id)
                                     user[j].state = 2;
                             }
+                        }
+                        else if(strstr(read,"create")){
+                            char name[30];
+                            memset(name,'\0',30);
+                            int jud=0;
+                            int k=7;
+                            if(read[k-1]=='\n'){
+                                send(i, "Please type your name\n", 50, 0);
+                                continue;
+                            }
+                            while(read[k]!='\0'){
+                                name[k-7]=read[k];
+                                k++;
+                            }
+                            printf("Someone want to create new account\n");
+                            int go = i;
+                            for(int j=0;j<30;j++){
+                                if(!strcmp(user[j].name,name)){
+                                    send(go, "The name have been used\n", 50, 0);
+                                    usleep(1);
+                                    printf("Create fail...\n");
+                                    jud=1;
+                                    break;
+                                }
+                            }
+                            if(jud)
+                                continue;
+                            for(int j=0;j<30;j++){
+                                if(user[j].id==-1)
+                                    num=j;
+                            }
+                            strcpy(user[num].name,name);
+                            user[num].id = i;
+                            user[num].in=1;
+                            user[num].state=9;
+                            user[num].total=0;
+                            user[num].win=0;
+                            user[num].watching=0;
+                            user[num].chatid=-1;
+                            for(int j=0;j<10;j++){
+                                    user[num].watchingguy[j]=-1;
+                            }            
+                            send(i, "Please set your password\n", 50, 0);
+                            usleep(1);
                         }
                         else if(strstr(read,"join")){
                             int jud=0;
@@ -218,44 +286,28 @@ int main() {
                             int go = i;
                             for(int j=0;j<30;j++){
                                 if(!strcmp(user[j].name,name)){
-                                    send(go, "The name have already log in\n", 50, 0);
-                                    usleep(1);
-                                    printf("You have already log in\n");
-                                    jud = 1;
-                                    break;
+                                send(user[j].id, "Please type password\n", 50, 0);
+                                usleep(1);
+                                user[j].state=11;
+                                jud =1;
+                                continue;                           
                                 }
                             }
-                            if(jud)
-                                continue;
-                            for(int j=0;j<30;j++){
-                                if(user[j].id==-1)
-                                    num=j;
+                            if(!jud){
+                                send(i, "No this user...\n", 50, 0);                          
+                                usleep(1);
                             }
-                            strcpy(user[num].name,name);
-                            user[num].id = i;
-                            user[num].in=1;
-                            user[num].state=1;
-                            user[num].total=0;
-                            user[num].win=0;
-                            user[num].watching=0;
-                            user[num].chatid=-1;
-                            for(int j=0;j<10;j++){
-                                    user[num].watchingguy[j]=-1;
-                            }
-
-                            send(i, "log in successful\n", 50, 0);
-                            usleep(1);
-                            printf("%s has log in\n",name);
+                                
                             continue;
                         }
-                        else if(strcmp(read,"Watching\n")==0){
+                        else if(strcmp(read,"Watching\n")==0&&user[w].login==1){
                             send(i, "Who do you want to watch?\n", 50, 0);
                             for(int j=0;j<30;j++){
                                 if(i==user[j].id)
                                     user[j].state = 4;
                             }  
                         }
-                        else if(strcmp(read,"Chat\n")==0){
+                        else if(strcmp(read,"Chat\n")==0&&user[w].login==1){
                             send(i, "Who do you want to chat?\n", 50, 0);
                             for(int j=0;j<30;j++){
                                 if(i==user[j].id)
@@ -268,11 +320,47 @@ int main() {
                                 if(i==user[j].id)
                                     w = j;
                             }
-                            if(user[w].state==1){
-                                send(i, "\nUsage: \n join {name}\n who\n winrate {player} \n invite \n Watching \n log out \n Chat \n help \n", 100, 0);
+                            if(user[w].state==1&&user[w].login==1){
+                                send(i, "\nUsage: \n join {name}\n gamelist\n who\n winrate {player} \n invite \n Watching \n log out \n Chat \n help \n", 100, 0);
                                 usleep(1);
                                 continue;
                             } 
+                            else if(user[w].state==11){
+                                char a[1024];
+                                memset(a,'\0',1024);
+                                strcpy(a,read);
+                                if(!strcmp(user[w].password,a)){
+                                    user[w].state=1;
+                                    user[w].login=1;
+                                    send(user[w].id, "log in success Welcome!\n", 50, 0);
+                                    usleep(1);
+                                }
+                                else{
+                                    send(user[w].id,"Wrong ,please type again\n", 100, 0);    
+                                    usleep(1);
+                                }
+
+                            }
+                            else if(user[w].state==10){
+                                char a[1024];
+                                memset(a,'\0',1024);
+                                strcpy(a,read);
+                                if(!strcmp(user[w].password,a)){
+                                    send(user[w].id,"Setting success ,Please log in first\n", 100, 0);    
+                                    usleep(1);
+                                }
+                                else{
+                                    send(user[w].id,"Wrong ,please type again\n", 100, 0);    
+                                    usleep(1);
+                                }
+                            }
+                            else if(user[w].state==9){
+                                memset(user[w].password,'\0',1024);
+                                strcpy(user[w].password,read);
+                                user[w].state=10;
+                                send(user[w].id,"Please check again\n", 100, 0);    
+                                usleep(1);
+                            }
                             else if(user[w].state==8){
                                 char a[70];
                                 memset(a,'\0',70);
@@ -437,9 +525,10 @@ int main() {
                                     send( user[w].id, "To send data, enter text followed by enter.!\n", 50, 0);
                                     usleep(1);
                                     user[w].state=1;
-                                    user[w].id=-1;
+                                    //user[w].id=-1;
+                                    user[w].login=-1;
                                     user[w].in=-1;
-                                    memset(user[w].name,'\0',1024);
+                                    //memset(user[w].name,'\0',1024);
                                     memset(user[w].board,'\0',9);
                                     memset(user[w].bit,'\0',100);
                                     memset(user[w].sysmbol,'\0',2);
@@ -449,11 +538,11 @@ int main() {
                                     user[w].turn=0;
                                     for(int j=0;j<9;j++)
                                         user[w].filled[j]=0;
-                                    user[w].win=0;
+                                    //user[w].win=0;
                                     user[w].counter=0;
                                     user[w].ingame=0;
-                                    user[w].win1=0;
-                                    user[w].total=0;
+                                    //user[w].win1=0;
+                                    //user[w].total=0;
                                     
                                 }
                                 else{
@@ -483,7 +572,7 @@ int main() {
                                 int sel=0;
                                 int in=0;
                                 for(int j=0;j<30;j++){               
-                                    if(!strcmp(user[j].name,name)){
+                                    if(!strcmp(user[j].name,name)&&user[j].login==1){
                                         if(user[j].ingame){
                                             send(user[w].id, "He/She is playing.Please find another person\n", 50, 0);
                                             user[w].state= 1;
@@ -512,7 +601,9 @@ int main() {
                                         memset( user[user[w].oppnent].more,'\0',4);
                                         break;
                                     }
-                                }   if(in)
+                                }   
+                                
+                                    if(in)
                                         continue;
                                     if( user[w].oppfind==0&&sel==0){
                                         send(user[w].id, "We can't find the oppnent\n", 50, 0);
@@ -567,13 +658,13 @@ int main() {
                                         send(user[w].id, "You reject\n", 50, 0);
                                         usleep(1);
                                         user[w].ingame=0;
-                                        user[user[w].oppnent].ingame=0;
-                                        user[w].oppnent =0;
-                                        user[user[w].oppnent].oppnent = 0;
+                                        user[user[w].oppnent].ingame=0;                              
                                         user[w].state=1;
                                         user[user[w].oppnent].state=1;
                                         user[w].oppfind=0;    
                                         user[user[w].oppnent].oppfind=0; 
+                                        user[user[w].oppnent].oppnent = -1;
+                                        user[w].oppnent =-1;
                                         continue;
                                     }
                                 }

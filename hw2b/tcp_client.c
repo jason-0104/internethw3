@@ -60,7 +60,7 @@ int main(int argc, char *argv[]) {
 
     printf("Connected.\n");
     printf("To send data, enter text followed by enter.\n");
-    printf("\nUsage: \n join {name}\n who\n winrate {player} \n invite \n Watching \n log out \n Chat \n help \nAnd please join first\n");
+    printf("\nUsage:  \n create \n join {name}\n who\n winrate {player} \n invite \n Watching \n log out \n Chat \n help \nAnd please join or create account first\n");
     while(1) {
 
         fd_set reads;
